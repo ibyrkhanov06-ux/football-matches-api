@@ -1,4 +1,5 @@
 require('dotenv').config();
+const path = require('path');
 const express = require('express');
 const { MongoClient, ObjectId } = require('mongodb');
 
@@ -11,12 +12,22 @@ app.use((req, res, next) => {
   next();
 });
 
-// static files
-app.use(express.static('public'));
+// ✅ Environment
 const PORT = process.env.PORT || 3000;
 const uri = process.env.MONGO_URI || 'mongodb://localhost:27017';
+
+// ✅ Mongo
 const client = new MongoClient(uri);
 let db;
+
+// ✅ Static (safe path)
+const publicDir = path.join(__dirname, 'public');
+app.use(express.static(publicDir));
+
+// ✅ Root route (fix "Not Found" on /)
+app.get('/', (req, res) => {
+  res.sendFile(path.join(publicDir, 'index.html'));
+});
 
 // helper: validate match
 function validateMatch(body) {
@@ -25,7 +36,6 @@ function validateMatch(body) {
   if (!homeTeam || !awayTeam || !date) return 'Missing required fields';
   if (homeTeam === awayTeam) return 'Teams must be different';
 
-  // ВАЖНО: если parseInt вернул NaN, Number.isInteger вернет false → будет 400 (это ок)
   if (!Number.isInteger(homeScore) || homeScore < 0) return 'Invalid homeScore';
   if (!Number.isInteger(awayScore) || awayScore < 0) return 'Invalid awayScore';
 
@@ -154,10 +164,10 @@ async function start() {
     await client.connect();
     db = client.db('football');
     console.log('Connected to MongoDB');
+
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
     });
-
   } catch (err) {
     console.error('Failed to start server:', err);
     process.exit(1);
