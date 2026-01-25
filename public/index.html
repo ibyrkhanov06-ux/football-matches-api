@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Football Matches</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+  <h1>Football Matches Manager</h1>
+
+  <!-- ADD / EDIT MATCH -->
+  <form id="matchForm">
+    <input type="text" id="homeTeam" placeholder="Home Team" required>
+    <input type="text" id="awayTeam" placeholder="Away Team" required>
+    <input type="number" id="homeScore" placeholder="Home Score" required>
+    <input type="number" id="awayScore" placeholder="Away Score" required>
+    <input type="date" id="date" required>
+    <button type="submit" id="submitBtn">Add Match</button>
+  </form>
+
+  <hr>
+
+  <!-- FILTER / SORT -->
+  <h2>Filter & Sort</h2>
+  <div id="controls">
+    <input type="text" id="filterTeam" placeholder="Filter by team (e.g. Barcelona)">
+
+    <select id="sortSelect">
+      <option value="">Sort by date</option>
+      <option value="date">Date ↑ (old → new)</option>
+      <option value="-date">Date ↓ (new → old)</option>
+    </select>
+
+    <button id="applyBtn">Apply</button>
+    <button id="resetBtn">Reset</button>
+  </div>
+
+  <hr>
+
+  <!-- MATCHES LIST -->
+  <div id="matches"></div>
+
+  <script src="script.js"></script>
+</body>
+
+</html>

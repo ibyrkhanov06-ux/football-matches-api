@@ -1,0 +1,14 @@
+{
+  "name": "backend-assignment",
+  "version": "1.0.0",
+  "description": "Simple backend with MongoDB native driver",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "express": "^4.18.2",
+    "mongodb": "^6.3.0"
+  }
+}
