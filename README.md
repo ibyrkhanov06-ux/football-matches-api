@@ -1,42 +1,64 @@
-# Football Matches Manager
+# Football Matches Manager (Express + MongoDB)
 
-This is a simple Node.js backend using the native MongoDB driver for managing football matches, with a football-themed HTML/CSS/JS frontend.
+Web app to manage football matches with full CRUD (Create, Read, Update, Delete).
+Backend: Express.js + MongoDB Native Driver  
+Frontend: HTML/CSS/JS (served from `public/`)
 
-## Installation
+## Live Demo (Deployed)
+https://football-matches-api-x14a.onrender.com
 
-1. Make sure MongoDB is running locally on port 27017.
-2. Run `npm install` to install dependencies.
+---
 
-## Running
+## Features
+- Create a match (home team, away team, score, date)
+- View all matches
+- Edit a match
+- Delete a match
+- Server-side **Filtering / Sorting / Projection** via query parameters
 
-Run `npm start` to start the server on port 3000.
+---
 
-Open http://localhost:3000 in your browser to access the frontend.
+## Tech Stack
+- Node.js + Express
+- MongoDB Native Driver
+- MongoDB Atlas (cloud database)
+- Render (deployment)
 
-## API Endpoints
+---
 
-- GET /matches - Get all matches
-- POST /matches - Create a new match (send JSON body with homeTeam, awayTeam, homeScore, awayScore, date)
-- GET /matches/:id - Get match by ID
-- PUT /matches/:id - Update match by ID
-- DELETE /matches/:id - Delete match by ID
+## Project Structure
+```txt
+asik_jony/
+  public/
+    index.html
+    script.js
+    style.css
+  server.js
+  package.json
+  README.md
+```
+## How to run 
+```
+npm install 
+npm start 
+```
+## HTTP Status Codes Used
+200 OK — successful GET/PUT/DELETE
 
-## Frontend Features
+201 Created — successful POST
 
-- Add new football matches
-- View list of matches with scores and dates
-- Edit existing matches
-- Delete matches
-- Football-themed UI with green background
+400 Bad Request — invalid input / invalid id
 
-## Frontend Features
+404 Not Found — match not found / wrong API route
 
-- View list of users
-- Add new user
-- Edit existing user
-- Delete user
+500 Internal Server Error — server/database error
+## DEployment notes 
+200 OK — successful GET/PUT/DELETE
 
-## Troubleshooting
+201 Created — successful POST
 
-- If MongoDB connection fails, ensure MongoDB is started.
-- Check console for errors.
+400 Bad Request — invalid input / invalid id
+
+404 Not Found — match not found / wrong API route
+
+500 Internal Server Error — server/database error
