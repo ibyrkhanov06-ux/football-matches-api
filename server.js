@@ -12,19 +12,17 @@ app.use((req, res, next) => {
   next();
 });
 
-// ✅ Environment
 const PORT = process.env.PORT || 3000;
 const uri = process.env.MONGO_URI || 'mongodb://localhost:27017';
 
-// ✅ Mongo
 const client = new MongoClient(uri);
 let db;
 
-// ✅ Static (safe path)
+// Static (safe path)
 const publicDir = path.join(__dirname, 'public');
 app.use(express.static(publicDir));
 
-// ✅ Root route (fix "Not Found" on /)
+// Root route (fix "Not Found" on /)
 app.get('/', (req, res) => {
   res.sendFile(path.join(publicDir, 'index.html'));
 });
@@ -165,7 +163,7 @@ app.use('/api', (req, res) => {
   res.status(404).json({ error: 'API route not found' });
 });
 
-// ✅ Start server ONLY after DB connects
+//  Start server ONLY after DB connects
 async function start() {
   try {
     await client.connect();
