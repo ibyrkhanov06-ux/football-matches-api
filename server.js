@@ -154,6 +154,13 @@ app.delete('/api/matches/:id', async (req, res) => {
 });
 
 // global 404 for API
+app.get('/api/version', (req, res) => {
+  res.status(200).json({
+    name: "football-matches-api",
+    version: "1.0.1",
+    deployedAt: new Date().toISOString()
+  });
+});
 app.use('/api', (req, res) => {
   res.status(404).json({ error: 'API route not found' });
 });
