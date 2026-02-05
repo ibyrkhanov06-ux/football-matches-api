@@ -7,17 +7,61 @@ const dateInput = document.getElementById('date');
 const submitBtn = document.getElementById('submitBtn');
 const matchesDiv = document.getElementById('matches');
 
-// NEW controls (from updated index.html)
+// auth UI (from updated index.html)
+const authStatus = document.getElementById("authStatus");
+const logoutBtn = document.getElementById("logoutBtn");
+
+// controls
 const filterTeamInput = document.getElementById('filterTeam');
 const sortSelect = document.getElementById('sortSelect');
 const applyBtn = document.getElementById('applyBtn');
 const resetBtn = document.getElementById('resetBtn');
 
 let editingId = null;
+let currentUser = null; // {id,email,role} when logged in
 
 const API_BASE = '/api/matches';
 
-// Build URL with query params for filtering/sorting
+//AUTH session
+
+async function checkAuth() {
+  try {
+    const res = await fetch("/api/auth/me", { credentials: "include" });
+    if (!res.ok) {
+      currentUser = null;
+      if (authStatus) authStatus.textContent = "Not logged in";
+      if (logoutBtn) logoutBtn.style.display = "none";
+      if (matchForm) matchForm.style.display = "none";
+      return;
+    }
+
+    const data = await res.json();
+    currentUser = data.user;
+
+    if (authStatus) authStatus.textContent = `Logged in as ${currentUser.email} (${currentUser.role})`;
+    if (logoutBtn) logoutBtn.style.display = "inline-block";
+
+    // only organizer can create matches (by our server rules)
+    if (matchForm) {
+      matchForm.style.display = currentUser.role === "organizer" ? "block" : "none";
+    }
+  } catch (e) {
+    currentUser = null;
+    if (authStatus) authStatus.textContent = "Auth check failed";
+    if (logoutBtn) logoutBtn.style.display = "none";
+    if (matchForm) matchForm.style.display = "none";
+  }
+}
+
+if (logoutBtn) {
+  logoutBtn.addEventListener("click", async () => {
+    await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+    window.location.href = "/login.html";
+  });
+}
+
+//Url builder
+
 function buildMatchesUrl() {
   const params = new URLSearchParams();
 
@@ -31,14 +75,18 @@ function buildMatchesUrl() {
   return qs ? `${API_BASE}?${qs}` : API_BASE;
 }
 
+//Load + REnder
+
 async function loadMatches(customUrl) {
   try {
     const url = customUrl || buildMatchesUrl();
 
-    const response = await fetch(url);
+    // IMPORTANT: include cookies for session
+    const response = await fetch(url, { credentials: "include" });
+
     if (!response.ok) {
       const err = await safeJson(response);
-      throw new Error(err?.error || `Failed to load matches (${response.status})`);
+      throw new Error(err?.error || err?.message || `Failed to load matches (${response.status})`);
     }
 
     const matches = await response.json();
@@ -54,44 +102,64 @@ async function loadMatches(customUrl) {
       const awayScore = match.awayScore ?? 0;
       const date = match.date ?? '';
 
+      // role-based UI:
+      // - organizer: edit + delete
+      // - participant: edit only (you can change this)
+      // - not logged in: no buttons
+      const canEdit = !!currentUser; // logged in
+      const canDelete = currentUser?.role === "organizer";
+
       matchDiv.innerHTML = `
         <strong>${escapeHtml(homeTeam)} vs ${escapeHtml(awayTeam)}</strong>
         - Score: ${homeScore}-${awayScore} on ${escapeHtml(date)}
-        <button class="edit-btn" data-id="${match._id}">Edit</button>
-        <button class="delete-btn" data-id="${match._id}">Delete</button>
+        ${canEdit ? `<button class="edit-btn" data-id="${match._id}">Edit</button>` : ``}
+        ${canDelete ? `<button class="delete-btn" data-id="${match._id}">Delete</button>` : ``}
       `;
 
-      matchDiv.querySelector('.edit-btn').addEventListener('click', () => {
-        editMatch(match._id, homeTeam, awayTeam, homeScore, awayScore, date);
-      });
+      if (canEdit) {
+        const editBtn = matchDiv.querySelector('.edit-btn');
+        if (editBtn) {
+          editBtn.addEventListener('click', () => {
+            editMatch(match._id, homeTeam, awayTeam, homeScore, awayScore, date);
+          });
+        }
+      }
 
-      matchDiv.querySelector('.delete-btn').addEventListener('click', async () => {
-        await deleteMatch(match._id);
-      });
+      if (canDelete) {
+        const delBtn = matchDiv.querySelector('.delete-btn');
+        if (delBtn) {
+          delBtn.addEventListener('click', async () => {
+            await deleteMatch(match._id);
+          });
+        }
+      }
 
       matchesDiv.appendChild(matchDiv);
     });
+
   } catch (error) {
     console.error('Error loading matches:', error.message);
     alert(`Error loading matches: ${error.message}`);
   }
 }
 
+//CRUD protected 
+
 async function addMatch(match) {
   try {
     const response = await fetch(API_BASE, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: "include", // IMPORTANT
       body: JSON.stringify(match)
     });
 
     if (!response.ok) {
       const err = await safeJson(response);
-      throw new Error(err?.error || `Failed to add match (${response.status})`);
+      throw new Error(err?.error || err?.message || `Failed to add match (${response.status})`);
     }
 
-    await response.json();
-    // after create, reload using current filter/sort on the page
+    await response.json().catch(() => null);
     await loadMatches();
   } catch (error) {
     console.error('Error adding match:', error.message);
@@ -104,15 +172,16 @@ async function updateMatch(id, match) {
     const response = await fetch(`${API_BASE}/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
+      credentials: "include", // IMPORTANT
       body: JSON.stringify(match)
     });
 
     if (!response.ok) {
       const err = await safeJson(response);
-      throw new Error(err?.error || `Failed to update match (${response.status})`);
+      throw new Error(err?.error || err?.message || `Failed to update match (${response.status})`);
     }
 
-    await response.json();
+    await response.json().catch(() => null);
     await loadMatches();
   } catch (error) {
     console.error('Error updating match:', error.message);
@@ -122,11 +191,14 @@ async function updateMatch(id, match) {
 
 async function deleteMatch(id) {
   try {
-    const response = await fetch(`${API_BASE}/${id}`, { method: 'DELETE' });
+    const response = await fetch(`${API_BASE}/${id}`, {
+      method: 'DELETE',
+      credentials: "include" // IMPORTANT
+    });
 
     if (!response.ok) {
       const err = await safeJson(response);
-      throw new Error(err?.error || `Failed to delete match (${response.status})`);
+      throw new Error(err?.error || err?.message || `Failed to delete match (${response.status})`);
     }
 
     await response.json().catch(() => null);
@@ -137,7 +209,10 @@ async function deleteMatch(id) {
   }
 }
 
+// Form and edit
+
 function editMatch(id, homeTeam, awayTeam, homeScore, awayScore, date) {
+  // if organizer-only create, editing should still be allowed for logged users (server allows requireAuth)
   homeTeamInput.value = homeTeam;
   awayTeamInput.value = awayTeam;
   homeScoreInput.value = homeScore;
@@ -148,34 +223,36 @@ function editMatch(id, homeTeam, awayTeam, homeScore, awayScore, date) {
   editingId = id;
 }
 
-matchForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
+if (matchForm) {
+  matchForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
 
-  const match = {
-    homeTeam: homeTeamInput.value.trim(),
-    awayTeam: awayTeamInput.value.trim(),
-    homeScore: parseInt(homeScoreInput.value, 10),
-    awayScore: parseInt(awayScoreInput.value, 10),
-    date: dateInput.value
-  };
+    const match = {
+      homeTeam: homeTeamInput.value.trim(),
+      awayTeam: awayTeamInput.value.trim(),
+      homeScore: parseInt(homeScoreInput.value, 10),
+      awayScore: parseInt(awayScoreInput.value, 10),
+      date: dateInput.value
+    };
 
-  if (editingId) {
-    await updateMatch(editingId, match);
-    editingId = null;
-    submitBtn.textContent = 'Add Match';
-  } else {
-    await addMatch(match);
-  }
+    if (editingId) {
+      await updateMatch(editingId, match);
+      editingId = null;
+      submitBtn.textContent = 'Add Match';
+    } else {
+      await addMatch(match);
+    }
 
-  // clear form
-  homeTeamInput.value = '';
-  awayTeamInput.value = '';
-  homeScoreInput.value = '';
-  awayScoreInput.value = '';
-  dateInput.value = '';
-});
+    homeTeamInput.value = '';
+    awayTeamInput.value = '';
+    homeScoreInput.value = '';
+    awayScoreInput.value = '';
+    dateInput.value = '';
+  });
+}
 
-// NEW: Apply / Reset filtering & sorting
+//Filter and sort
+
 if (applyBtn) {
   applyBtn.addEventListener('click', (e) => {
     e.preventDefault();
@@ -192,7 +269,8 @@ if (resetBtn) {
   });
 }
 
-// helpers
+//Helpers
+
 async function safeJson(response) {
   try {
     return await response.json();
@@ -210,5 +288,10 @@ function escapeHtml(str) {
     .replaceAll("'", '&#039;');
 }
 
-// Load matches on page load
-loadMatches();
+//Init
+
+// сначала узнаём кто пользователь (session), потом грузим матчи с правильными кнопками
+(async () => {
+  await checkAuth();
+  await loadMatches();
+})();

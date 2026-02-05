@@ -1,24 +1,31 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Football Matches</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css" />
 </head>
 
 <body>
 
   <h1>Football Matches Manager</h1>
 
-  <!-- ADD / EDIT MATCH -->
-  <form id="matchForm">
-    <input type="text" id="homeTeam" placeholder="Home Team" required>
-    <input type="text" id="awayTeam" placeholder="Away Team" required>
-    <input type="number" id="homeScore" placeholder="Home Score" required>
-    <input type="number" id="awayScore" placeholder="Away Score" required>
-    <input type="date" id="date" required>
+  <!-- AUTH INFO -->
+  <div id="authBox">
+    <p id="authStatus">Checking authentication...</p>
+    <button id="logoutBtn" style="display:none;">Logout</button>
+  </div>
+
+  <hr>
+
+  <!-- ADD / EDIT MATCH (ONLY FOR ORGANIZER) -->
+  <form id="matchForm" style="display:none;">
+    <input type="text" id="homeTeam" placeholder="Home Team" required />
+    <input type="text" id="awayTeam" placeholder="Away Team" required />
+    <input type="number" id="homeScore" placeholder="Home Score" required />
+    <input type="number" id="awayScore" placeholder="Away Score" required />
+    <input type="date" id="date" required />
     <button type="submit" id="submitBtn">Add Match</button>
   </form>
 
@@ -27,7 +34,7 @@
   <!-- FILTER / SORT -->
   <h2>Filter & Sort</h2>
   <div id="controls">
-    <input type="text" id="filterTeam" placeholder="Filter by team (e.g. Barcelona)">
+    <input type="text" id="filterTeam" placeholder="Filter by team (e.g. Barcelona)" />
 
     <select id="sortSelect">
       <option value="">Sort by date</option>
@@ -46,5 +53,4 @@
 
   <script src="script.js"></script>
 </body>
-
 </html>
