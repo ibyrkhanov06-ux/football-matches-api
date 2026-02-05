@@ -1,7 +1,9 @@
-require('dotenv').config();
-const path = require('path');
-const express = require('express');
-const { MongoClient, ObjectId } = require('mongodb');
+require("dotenv").config();
+const path = require("path");
+const express = require("express");
+const { MongoClient, ObjectId } = require("mongodb");
+
+const itemsRoutes = require("./routes/items");
 
 const app = express();
 app.use(express.json());
@@ -13,35 +15,36 @@ app.use((req, res, next) => {
 });
 
 const PORT = process.env.PORT || 3000;
-const uri = process.env.MONGO_URI || 'mongodb://localhost:27017';
+const uri = process.env.MONGO_URI || "mongodb://localhost:27017";
 
 const client = new MongoClient(uri);
 let db;
 
-// Static (safe path)
-const publicDir = path.join(__dirname, 'public');
+// Static
+const publicDir = path.join(__dirname, "public");
 app.use(express.static(publicDir));
 
-// Root route (fix "Not Found" on /)
-app.get('/', (req, res) => {
-  res.sendFile(path.join(publicDir, 'index.html'));
+// Root route
+app.get("/", (req, res) => {
+  res.sendFile(path.join(publicDir, "index.html"));
 });
 
 // helper: validate match
 function validateMatch(body) {
   const { homeTeam, awayTeam, homeScore, awayScore, date } = body;
 
-  if (!homeTeam || !awayTeam || !date) return 'Missing required fields';
-  if (homeTeam === awayTeam) return 'Teams must be different';
+  if (!homeTeam || !awayTeam || !date) return "Missing required fields";
+  if (homeTeam === awayTeam) return "Teams must be different";
 
-  if (!Number.isInteger(homeScore) || homeScore < 0) return 'Invalid homeScore';
-  if (!Number.isInteger(awayScore) || awayScore < 0) return 'Invalid awayScore';
+  if (!Number.isInteger(homeScore) || homeScore < 0) return "Invalid homeScore";
+  if (!Number.isInteger(awayScore) || awayScore < 0) return "Invalid awayScore";
 
   return null;
 }
 
-// GET all matches (filtering / sorting / projection)
-app.get('/api/matches', async (req, res) => {
+//Matches
+
+app.get("/api/matches", async (req, res) => {
   try {
     const { homeTeam, awayTeam, team, sort, fields } = req.query;
 
@@ -50,131 +53,156 @@ app.get('/api/matches', async (req, res) => {
     if (awayTeam) filter.awayTeam = awayTeam;
     if (team) filter.$or = [{ homeTeam: team }, { awayTeam: team }];
 
-    let query = db.collection('matches').find(filter);
+    let query = db.collection("matches").find(filter);
 
     // sorting
     if (sort) {
-      const direction = sort.startsWith('-') ? -1 : 1;
-      const field = sort.replace('-', '');
+      const direction = sort.startsWith("-") ? -1 : 1;
+      const field = sort.replace("-", "");
       query = query.sort({ [field]: direction });
     }
 
     // projection
     if (fields) {
       const projection = {};
-      fields.split(',').forEach(f => (projection[f.trim()] = 1));
+      fields.split(",").forEach((f) => (projection[f.trim()] = 1));
       query = query.project(projection);
     }
 
     const matches = await query.toArray();
     res.status(200).json(matches);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  } catch {
+    res.status(500).json({ error: "Server error" });
   }
 });
 
-// GET match by id
-app.get('/api/matches/:id', async (req, res) => {
+app.get("/api/matches/:id", async (req, res) => {
   if (!ObjectId.isValid(req.params.id)) {
-    return res.status(400).json({ error: 'Invalid id' });
+    return res.status(400).json({ error: "Invalid id" });
   }
 
   try {
-    const match = await db.collection('matches').findOne({
+    const match = await db.collection("matches").findOne({
       _id: new ObjectId(req.params.id),
     });
 
-    if (!match) return res.status(404).json({ error: 'Match not found' });
-
+    if (!match) return res.status(404).json({ error: "Match not found" });
     res.status(200).json(match);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  } catch {
+    res.status(500).json({ error: "Server error" });
   }
 });
 
-// POST create match
-app.post('/api/matches', async (req, res) => {
+app.post("/api/matches", async (req, res) => {
   const error = validateMatch(req.body);
   if (error) return res.status(400).json({ error });
 
   try {
-    const result = await db.collection('matches').insertOne(req.body);
-    res.status(201).json(result);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    const result = await db.collection("matches").insertOne(req.body);
+    res.status(201).json({ id: result.insertedId });
+  } catch {
+    res.status(500).json({ error: "Server error" });
   }
 });
 
-// PUT update match
-app.put('/api/matches/:id', async (req, res) => {
+app.put("/api/matches/:id", async (req, res) => {
   if (!ObjectId.isValid(req.params.id)) {
-    return res.status(400).json({ error: 'Invalid id' });
+    return res.status(400).json({ error: "Invalid id" });
   }
 
   const error = validateMatch(req.body);
   if (error) return res.status(400).json({ error });
 
   try {
-    const result = await db.collection('matches').updateOne(
+    const result = await db.collection("matches").updateOne(
       { _id: new ObjectId(req.params.id) },
       { $set: req.body }
     );
 
     if (result.matchedCount === 0) {
-      return res.status(404).json({ error: 'Match not found' });
+      return res.status(404).json({ error: "Match not found" });
     }
 
-    res.status(200).json(result);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(200).json({ message: "Match updated" });
+  } catch {
+    res.status(500).json({ error: "Server error" });
   }
 });
 
-// DELETE match
-app.delete('/api/matches/:id', async (req, res) => {
+app.patch("/api/matches/:id", async (req, res) => {
   if (!ObjectId.isValid(req.params.id)) {
-    return res.status(400).json({ error: 'Invalid id' });
+    return res.status(400).json({ error: "Invalid id" });
   }
 
   try {
-    const result = await db.collection('matches').deleteOne({
+    const result = await db.collection("matches").updateOne(
+      { _id: new ObjectId(req.params.id) },
+      { $set: req.body }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ error: "Match not found" });
+    }
+
+    res.status(200).json({ message: "Match updated" });
+  } catch {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.delete("/api/matches/:id", async (req, res) => {
+  if (!ObjectId.isValid(req.params.id)) {
+    return res.status(400).json({ error: "Invalid id" });
+  }
+
+  try {
+    const result = await db.collection("matches").deleteOne({
       _id: new ObjectId(req.params.id),
     });
 
     if (result.deletedCount === 0) {
-      return res.status(404).json({ error: 'Match not found' });
+      return res.status(404).json({ error: "Match not found" });
     }
 
-    res.status(200).json(result);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(204).end();
+  } catch {
+    res.status(500).json({ error: "Server error" });
   }
 });
 
-// global 404 for API
-app.get('/api/version', (req, res) => {
+//Meta
+
+app.get("/api/version", (req, res) => {
   res.status(200).json({
     name: "football-matches-api",
     version: "1.0.1",
-    deployedAt: new Date().toISOString()
+    deployedAt: new Date().toISOString(),
   });
 });
-app.use('/api', (req, res) => {
-  res.status(404).json({ error: 'API route not found' });
-});
 
-//  Start server ONLY after DB connects
+//Start server ONLY after DB connects +connect /api/items HERE
+
+
 async function start() {
   try {
     await client.connect();
-    db = client.db('football');
-    console.log('Connected to MongoDB');
+    db = client.db("football");
+    console.log("Connected to MongoDB");
+
+    // ✅ Practice Task 13/14: /api/items подключаем ПОСЛЕ db connect
+    const itemsCollection = db.collection("items");
+    app.use("/api/items", itemsRoutes(itemsCollection));
+
+    // ✅ 404 for API routes (после всех API)
+    app.use("/api", (req, res) => {
+      res.status(404).json({ error: "API route not found" });
+    });
 
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
     });
   } catch (err) {
-    console.error('Failed to start server:', err);
+    console.error("Failed to start server:", err);
     process.exit(1);
   }
 }
