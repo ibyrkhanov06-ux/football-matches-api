@@ -1,8 +1,12 @@
 # Football Matches Manager (Express + MongoDB)
 
-Web app to manage football matches with full CRUD (Create, Read, Update, Delete).
+Web application for managing football matches with full CRUD functionality and session-based authentication.  
+The project was extended as part of **Assignment 4 (Sessions & Security)**.
+
 Backend: Express.js + MongoDB Native Driver  
-Frontend: HTML/CSS/JS (served from `public/`)
+Frontend: HTML / CSS / JavaScript (served from `public/`)
+
+---
 
 ## Live Demo (Deployed)
 https://football-matches-api-x14a.onrender.com
@@ -10,29 +14,51 @@ https://football-matches-api-x14a.onrender.com
 ---
 
 ## Features
-- Create a match (home team, away team, score, date)
+
+### Football Matches Management
+- Create football matches (home team, away team, score, date)
 - View all matches
-- Edit a match
-- Delete a match
-- Server-side **Filtering / Sorting / Projection** via query parameters
+- Edit existing matches
+- Delete matches
+- Server-side **Filtering / Sorting / Projection** using query parameters
+
+### Authentication & Authorization (Assignment 4)
+- Session-based authentication using `express-session`
+- Login via Web UI (no Postman required)
+- Session stored in HttpOnly cookies
+- Role-based authorization:
+  - `organizer` — can create and delete matches
+  - `participant` — can view and update matches
+- Unauthorized users cannot modify data
 
 ---
 
 ## Tech Stack
-- Node.js + Express
+- Node.js
+- Express.js
 - MongoDB Native Driver
 - MongoDB Atlas (cloud database)
 - Render (deployment)
+- express-session
+- bcrypt
 
 ---
 
 ## Project Structure
 ```txt
-asik_jony/
+football-matches-api/
   public/
     index.html
+    login.html
     script.js
     style.css
+  middleware/
+    requireAuth.js
+    requireRole.js
+  routes/
+    items.js
+  scripts/
+    seedUser.js
   server.js
   package.json
   README.md
