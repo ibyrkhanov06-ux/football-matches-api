@@ -1,38 +1,185 @@
-<!doctype html>
-<html>
-<head><meta charset="utf-8"><title>Login</title></head>
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Login</title>
+    <link rel="stylesheet" href="style.css" />
+    <style>
+        /* Login page UI (works with your green theme) */
+        .login-wrap {
+            max-width: 420px;
+            margin: 40px auto;
+            background: rgba(0, 0, 0, 0.18);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 10px;
+            padding: 22px;
+            color: white;
+        }
+
+        .login-title {
+            margin: 0 0 14px 0;
+            font-size: 28px;
+            font-weight: 800;
+            text-align: center;
+        }
+
+        .login-sub {
+            margin: 0 0 18px 0;
+            text-align: center;
+            opacity: 0.9;
+            font-size: 14px;
+        }
+
+        .form-row {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-bottom: 12px;
+        }
+
+        .form-row label {
+            font-weight: 700;
+            font-size: 14px;
+            opacity: 0.95;
+        }
+
+        .form-row input {
+            padding: 12px 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.25);
+            background: rgba(255, 255, 255, 0.95);
+            outline: none;
+            font-size: 14px;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 12px;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            font-weight: 800;
+            background: #ff6b2d;
+            color: white;
+            margin-top: 6px;
+        }
+
+        .btn:hover {
+            filter: brightness(1.05);
+        }
+
+        .status {
+            margin-top: 12px;
+            padding: 10px;
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.20);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            font-size: 14px;
+        }
+
+        .hint {
+            margin-top: 10px;
+            font-size: 13px;
+            opacity: 0.9;
+            text-align: center;
+        }
+    </style>
+</head>
+
 <body>
-  <h1>Login</h1>
-  <form id="f">
-    <input id="email" placeholder="Email" required />
-    <input id="password" type="password" placeholder="Password" required />
-    <button>Login</button>
-  </form>
-  <p id="msg"></p>
 
-  <script>
-    const f = document.getElementById("f");
-    const msg = document.getElementById("msg");
+    <!-- NAVIGATION -->
+    <nav class="nav">
+        <div class="nav-left">
+            <span class="logo">⚽ Football Manager</span>
+        </div>
+        <div class="nav-right">
+            <a href="/index.html">Home</a>
+            <a href="/tournaments.html">Tournaments</a>
+            <a href="/standings.html">Standings</a>
+            <a href="/login.html">Login</a>
+        </div>
+    </nav>
 
-    f.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      msg.textContent = "Loading...";
+    <div class="login-wrap">
+        <h1 class="login-title">Login</h1>
+        <p class="login-sub">Sign in to manage tournaments and matches</p>
 
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          email: document.getElementById("email").value,
-          password: document.getElementById("password").value
-        })
-      });
+        <form id="loginForm">
+            <div class="form-row">
+                <label for="email">Email</label>
+                <input id="email" type="email" placeholder="admin@mail.com" required />
+            </div>
 
-      const data = await res.json().catch(() => ({}));
-      msg.textContent = data.message || "Error";
+            <div class="form-row">
+                <label for="password">Password</label>
+                <input id="password" type="password" placeholder="••••••••" required />
+            </div>
 
-      if (res.ok) window.location.href = "/";
-    });
-  </script>
+            <button class="btn" type="submit">Login</button>
+        </form>
+
+        <div class="status" id="statusBox">Status: waiting...</div>
+
+        <div class="hint">
+            Tip: Login as <b>organizer</b> to create/delete matches.
+        </div>
+    </div>
+
+    <script>
+        const form = document.getElementById('loginForm');
+        const statusBox = document.getElementById('statusBox');
+
+        function setStatus(text) {
+            statusBox.textContent = 'Status: ' + text;
+        }
+
+        async function safeJson(res) {
+            try { return await res.json(); } catch { return null; }
+        }
+
+        // Check current session
+        async function checkMe() {
+            const res = await fetch('/api/auth/me');
+            if (!res.ok) return setStatus('not logged in');
+
+            const data = await res.json();
+            setStatus(`logged in as ${data.user.email} (${data.user.role})`);
+        }
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const email = document.getElementById('email').value.trim();
+            const password = document.getElementById('password').value;
+
+            setStatus('logging in...');
+
+            const res = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password })
+            });
+
+            const data = await safeJson(res);
+
+            if (!res.ok) {
+                setStatus(data?.message || data?.error || `login failed (${res.status})`);
+                return;
+            }
+
+            setStatus(`success ✅ role: ${data.role}`);
+
+            // small delay for UX then go home
+            setTimeout(() => {
+                window.location.href = '/index.html';
+            }, 600);
+        });
+
+        checkMe();
+    </script>
 </body>
+
 </html>

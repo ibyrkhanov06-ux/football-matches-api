@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <title>Tournaments</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+  <nav class="nav">
+    <a href="/index.html">Home</a>
+    <a href="/tournaments.html">Tournaments</a>
+    <a href="/standings.html">Standings</a>
+    <a href="/login.html">Login</a>
+  </nav>
+  <hr>
+
+  <h1>Tournament Manager</h1>
+
+  <!-- STATUS (debug + user feedback) -->
+  <div id="statusBox" style="padding:10px; border-radius:6px; margin-bottom:12px; background:#2e7d32; color:white;">
+    Status: <span id="statusText">Loading...</span>
+  </div>
+
+  <h3>Create Tournament</h3>
+  <input id="tName" placeholder="Tournament name">
+  <button type="button" onclick="createTournament()">Create</button>
+
+  <hr>
+
+  <h3>Select Tournament</h3>
+  <select id="tSelect" onchange="loadTournament()"></select>
+  <button type="button" onclick="loadTournaments()">Refresh</button>
+
+  <hr>
+
+  <h3>Add Team</h3>
+  <input id="teamName" placeholder="Team name">
+  <button type="button" onclick="addTeam()">Add Team</button>
+
+  <ul id="teamsList"></ul>
+
+  <hr>
+
+  <h3>Add Match</h3>
+  <select id="homeTeam"></select>
+  <select id="awayTeam"></select>
+  <input id="homeScore" type="number" placeholder="Home score">
+  <input id="awayScore" type="number" placeholder="Away score">
+  <input id="date" type="date">
+  <button type="button" onclick="addMatch()">Add Match</button>
+
+  <script>
+    function setStatus(msg) {
+      document.getElementById('statusText').textContent = msg;
+    }
+
+    async function safeJson(res) {
+      try { return await res.json(); } catch { return null; }
+    }
+
+    function setSelectsDisabled(disabled) {
+      document.getElementById('homeTeam').disabled = disabled;
+      document.getElementById('awayTeam').disabled = disabled;
+    }
+
+    function fillTeamsSelects(teams) {
+      const home = document.getElementById('homeTeam');
+      const away = document.getElementById('awayTeam');
+
+      home.innerHTML = '';
+      away.innerHTML = '';
+
+      if (!teams || teams.length === 0) {
+        home.innerHTML = '<option value="">No teams</option>';
+        away.innerHTML = '<option value="">No teams</option>';
+        setSelectsDisabled(true);
+        return;
+      }
+
+      teams.forEach(team => {
+        home.add(new Option(team.name, team._id));
+        away.add(new Option(team.name, team._id));
+      });
+
+      setSelectsDisabled(false);
+    }
+
+    async function loadTournaments() {
+      setStatus('Loading tournaments...');
+      const res = await fetch('/api/tournaments');
+
+      if (!res.ok) {
+        const err = await safeJson(res);
+        setStatus(`Not logged in / error: ${err?.error || err?.message || res.status}`);
+        alert('Login first (go to Login page)');
+        return;
+      }
+
+      const data = await res.json();
+      const sel = document.getElementById('tSelect');
+      sel.innerHTML = '';
+
+      if (data.length === 0) {
+        sel.innerHTML = '<option value="">No tournaments</option>';
+        fillTeamsSelects([]);
+        document.getElementById('teamsList').innerHTML = '';
+        setStatus('No tournaments yet. Create one.');
+        return;
+      }
+
+      data.forEach(t => {
+        const o = document.createElement('option');
+        o.value = t._id;
+        o.textContent = t.name;
+        sel.appendChild(o);
+      });
+
+      setStatus('Tournaments loaded ✅');
+      await loadTournament();
+    }
+
+    async function createTournament() {
+      const name = document.getElementById('tName').value.trim();
+      if (!name) return alert('Enter tournament name');
+
+      setStatus('Creating tournament...');
+      const res = await fetch('/api/tournaments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+      });
+
+      const data = await safeJson(res);
+
+      if (!res.ok) {
+        setStatus(`Create failed: ${data?.error || data?.message || res.status}`);
+        alert(data?.error || data?.message || 'Failed to create tournament');
+        return;
+      }
+
+      document.getElementById('tName').value = '';
+      setStatus('Tournament created ✅');
+      await loadTournaments();
+    }
+
+    async function loadTournament() {
+      const id = document.getElementById('tSelect').value;
+
+      if (!id) {
+        fillTeamsSelects([]);
+        document.getElementById('teamsList').innerHTML = '';
+        setStatus('Select tournament first');
+        return;
+      }
+
+      setStatus('Loading tournament details...');
+      const res = await fetch(`/api/tournaments/${id}`);
+      const t = await safeJson(res);
+
+      if (!res.ok) {
+        setStatus(`Tournament load failed: ${t?.error || t?.message || res.status}`);
+        return;
+      }
+
+      // render teams list + remove buttons
+      const list = document.getElementById('teamsList');
+      list.innerHTML = '';
+
+      (t.teams || []).forEach(team => {
+        const li = document.createElement('li');
+        li.textContent = team.name;
+
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.textContent = 'Remove';
+        del.style.marginLeft = '10px';
+        del.onclick = async () => {
+          setStatus('Removing team...');
+          const r = await fetch(`/api/tournaments/${id}/teams/${team._id}`, { method: 'DELETE' });
+          const rr = await safeJson(r);
+
+          if (!r.ok) {
+            setStatus(`Remove failed: ${rr?.error || rr?.message || r.status}`);
+            alert(rr?.error || 'Failed to remove team');
+            return;
+          }
+
+          setStatus('Team removed ✅');
+          await loadTournament();
+        };
+
+        li.appendChild(del);
+        list.appendChild(li);
+      });
+
+      fillTeamsSelects(t.teams || []);
+      setStatus(`Tournament loaded ✅ (teams: ${(t.teams || []).length})`);
+    }
+
+    async function addTeam() {
+      const id = document.getElementById('tSelect').value;
+      const name = document.getElementById('teamName').value.trim();
+      if (!id) return alert('Select tournament first');
+      if (!name) return alert('Enter team name');
+
+      setStatus('Adding team...');
+      const res = await fetch(`/api/tournaments/${id}/teams`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+      });
+
+      const data = await safeJson(res);
+
+      if (!res.ok) {
+        setStatus(`Add team failed: ${data?.error || data?.message || res.status}`);
+        alert(data?.error || 'Failed to add team');
+        return;
+      }
+
+      document.getElementById('teamName').value = '';
+      setStatus('Team added ✅');
+      await loadTournament(); // ✅ обновляем список и селекты
+    }
+
+    async function addMatch() {
+      const tid = document.getElementById('tSelect').value;
+      const homeTeamId = document.getElementById('homeTeam').value;
+      const awayTeamId = document.getElementById('awayTeam').value;
+
+      if (!tid) return alert('Select tournament first');
+      if (!homeTeamId || !awayTeamId) return alert('Add teams first');
+      if (homeTeamId === awayTeamId) return alert('Teams must be different');
+
+      const body = {
+        homeTeamId,
+        awayTeamId,
+        homeScore: Number(document.getElementById('homeScore').value),
+        awayScore: Number(document.getElementById('awayScore').value),
+        date: document.getElementById('date').value
+      };
+
+      setStatus('Adding match...');
+      const res = await fetch(`/api/tournaments/${tid}/matches`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+
+      const data = await safeJson(res);
+
+      if (!res.ok) {
+        setStatus(`Add match failed: ${data?.error || data?.message || res.status}`);
+        alert(data?.error || 'Failed to add match');
+        return;
+      }
+
+      setStatus('Match added ✅');
+      alert('Match added ✅');
+    }
+
+    // expose to inline onclick
+    window.createTournament = createTournament;
+    window.loadTournaments = loadTournaments;
+    window.loadTournament = loadTournament;
+    window.addTeam = addTeam;
+    window.addMatch = addMatch;
+
+    // start
+    fillTeamsSelects([]);
+    loadTournaments();
+  </script>
+
+</body>
+</html>
