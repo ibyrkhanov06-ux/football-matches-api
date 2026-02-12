@@ -33,7 +33,7 @@ app.get("/", (req, res) => {
   res.sendFile(path.join(publicDir, "index.html"));
 });
 
-// sessions (Assignment 4)
+// sessions
 app.set("trust proxy", 1);
 app.use(
   session({
@@ -42,7 +42,7 @@ app.use(
     resave: false,
     saveUninitialized: false,
     cookie: {
-      httpOnly: true, // REQUIRED
+      httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
       maxAge: 1000 * 60 * 60 * 2, // 2h
@@ -50,7 +50,7 @@ app.use(
   })
 );
 
-// helper
+// ---------- helpers ----------
 function validateMatch(body) {
   const { homeTeam, awayTeam, homeScore, awayScore, date } = body;
   if (!homeTeam || !awayTeam || !date) return "Missing required fields";
@@ -60,9 +60,19 @@ function validateMatch(body) {
   return null;
 }
 
-// ===== Auth ass4 =====
+// allow matching tournaments where _id might be string OR ObjectId
+function oidOrString(val) {
+  if (ObjectId.isValid(val)) return [new ObjectId(val), val];
+  return [val];
+}
+function idFilter(id) {
+  const ids = oidOrString(id);
+  return ids.length === 2
+    ? { $or: [{ _id: ids[0] }, { _id: ids[1] }] }
+    : { _id: ids[0] };
+}
 
-// ✅ ADD: REGISTER (Final needs full auth)
+// ---------- AUTH ----------
 app.post("/api/auth/register", async (req, res) => {
   try {
     const { email, password, role } = req.body;
@@ -82,7 +92,6 @@ app.post("/api/auth/register", async (req, res) => {
     const existing = await users.findOne({ email: normalizedEmail });
     if (existing) return res.status(409).json({ message: "Email already exists" });
 
-    // allow only specific roles (optional)
     const safeRole = role === "organizer" ? "organizer" : "user";
 
     const passwordHash = await bcrypt.hash(password, 10);
@@ -95,7 +104,6 @@ app.post("/api/auth/register", async (req, res) => {
 
     const result = await users.insertOne(doc);
 
-    // auto login after register
     req.session.user = {
       id: result.insertedId.toString(),
       email: doc.email,
@@ -145,22 +153,15 @@ app.get("/api/auth/me", (req, res) => {
   res.status(200).json({ user: req.session.user });
 });
 
-// helper: ownership check for tournaments
+// ---------- ownership helper (tournaments) ----------
 async function ensureTournamentOwner(req, res, next) {
   try {
     const tid = req.params.id;
-    if (!ObjectId.isValid(tid)) {
-      return res.status(400).json({ error: "Invalid tournament id" });
-    }
 
-    const t = await db.collection("tournaments").findOne({
-      _id: new ObjectId(tid),
-    });
-
+    const t = await db.collection("tournaments").findOne(idFilter(tid));
     if (!t) return res.status(404).json({ error: "Tournament not found" });
 
-    // only owner or organizer can modify
-    const isOwner = req.session?.user?.id === String(t.ownerId);
+    const isOwner = String(req.session?.user?.id) === String(t.ownerId);
     const isOrganizer = req.session?.user?.role === "organizer";
     if (!isOwner && !isOrganizer) {
       return res.status(403).json({ error: "Forbidden" });
@@ -168,12 +169,12 @@ async function ensureTournamentOwner(req, res, next) {
 
     req.tournament = t;
     next();
-  } catch (e) {
+  } catch {
     res.status(500).json({ error: "Server error" });
   }
 }
 
-// ===== Final: Tournaments (multiple collections + embedded teams) =====
+// ---------- TOURNAMENTS ----------
 
 // CREATE tournament
 app.post("/api/tournaments", requireAuth, async (req, res) => {
@@ -185,47 +186,168 @@ app.post("/api/tournaments", requireAuth, async (req, res) => {
 
     const doc = {
       name: String(name).trim(),
-      ownerId: new ObjectId(req.session.user.id), // referenced user
-      teams: [], // embedded
+      ownerId: req.session.user.id, // ✅ store as string
+      teams: [],
       createdAt: new Date(),
       views: 0,
     };
 
     const result = await db.collection("tournaments").insertOne(doc);
     res.status(201).json({ id: result.insertedId });
-  } catch (e) {
-    res.status(500).json({ error: "Server error" });
-  }
-});
-
-// GET all tournaments (mine if not organizer)
-app.get("/api/tournaments", requireAuth, async (req, res) => {
-  try {
-    const filter =
-      req.session.user.role === "organizer"
-        ? {}
-        : { ownerId: new ObjectId(req.session.user.id) };
-
-    const tournaments = await db
-      .collection("tournaments")
-      .find(filter)
-      .sort({ createdAt: -1 })
-      .toArray();
-
-    res.status(200).json(tournaments);
   } catch {
     res.status(500).json({ error: "Server error" });
   }
 });
 
-// GET tournament by id (+ $inc views)
-app.get("/api/tournaments/:id", requireAuth, async (req, res) => {
-  if (!ObjectId.isValid(req.params.id))
-    return res.status(400).json({ error: "Invalid id" });
-
+// GET all tournaments + pagination
+app.get("/api/tournaments", requireAuth, async (req, res) => {
   try {
+    const page = Math.max(parseInt(req.query.page || "1", 10), 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit || "10", 10), 1), 50);
+    const skip = (page - 1) * limit;
+
+    const filter =
+      req.session.user.role === "organizer"
+        ? {}
+        : { ownerId: req.session.user.id }; // ✅ string
+
+    const col = db.collection("tournaments");
+    const total = await col.countDocuments(filter);
+
+    const items = await col
+      .find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .toArray();
+
+    res.status(200).json({
+      items,
+      page,
+      limit,
+      total,
+      pages: Math.ceil(total / limit),
+    });
+  } catch {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// standings BEFORE :id
+app.get("/api/tournaments/:id/standings", requireAuth, async (req, res) => {
+  try {
+    const tournament = await db.collection("tournaments").findOne(idFilter(req.params.id));
+    if (!tournament) return res.status(404).json({ error: "Tournament not found" });
+
+    const tid = tournament._id;
+
+    const pipeline = [
+      { $match: { tournamentId: tid } },
+      {
+        $project: {
+          homeTeamId: 1,
+          awayTeamId: 1,
+          homeScore: 1,
+          awayScore: 1,
+        },
+      },
+      {
+        $facet: {
+          home: [
+            {
+              $project: {
+                teamId: "$homeTeamId",
+                gf: "$homeScore",
+                ga: "$awayScore",
+                win: { $cond: [{ $gt: ["$homeScore", "$awayScore"] }, 1, 0] },
+                draw: { $cond: [{ $eq: ["$homeScore", "$awayScore"] }, 1, 0] },
+                loss: { $cond: [{ $lt: ["$homeScore", "$awayScore"] }, 1, 0] },
+              },
+            },
+          ],
+          away: [
+            {
+              $project: {
+                teamId: "$awayTeamId",
+                gf: "$awayScore",
+                ga: "$homeScore",
+                win: { $cond: [{ $gt: ["$awayScore", "$homeScore"] }, 1, 0] },
+                draw: { $cond: [{ $eq: ["$awayScore", "$homeScore"] }, 1, 0] },
+                loss: { $cond: [{ $lt: ["$awayScore", "$homeScore"] }, 1, 0] },
+              },
+            },
+          ],
+        },
+      },
+      { $project: { rows: { $concatArrays: ["$home", "$away"] } } },
+      { $unwind: "$rows" },
+      {
+        $group: {
+          _id: "$rows.teamId",
+          games: { $sum: 1 },
+          wins: { $sum: "$rows.win" },
+          draws: { $sum: "$rows.draw" },
+          losses: { $sum: "$rows.loss" },
+          goalsFor: { $sum: "$rows.gf" },
+          goalsAgainst: { $sum: "$rows.ga" },
+        },
+      },
+      {
+        $addFields: {
+          points: { $add: [{ $multiply: ["$wins", 3] }, "$draws"] },
+          goalDiff: { $subtract: ["$goalsFor", "$goalsAgainst"] },
+        },
+      },
+      { $sort: { points: -1, goalDiff: -1, goalsFor: -1 } },
+    ];
+
+    const stats = await db.collection("matches").aggregate(pipeline).toArray();
+
+    const nameMap = {};
+    (tournament.teams || []).forEach((t) => {
+      nameMap[String(t._id)] = t.name;
+    });
+
+    const result = stats.map((s) => ({
+      teamId: s._id,
+      teamName: nameMap[String(s._id)] || "Unknown team",
+      games: s.games,
+      wins: s.wins,
+      draws: s.draws,
+      losses: s.losses,
+      goalsFor: s.goalsFor,
+      goalsAgainst: s.goalsAgainst,
+      goalDiff: s.goalDiff,
+      points: s.points,
+    }));
+
+    res.status(200).json({ tournamentId: tid, standings: result });
+  } catch {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.get("/api/tournaments/__debug/one", requireAuth, async (req, res) => {
+  const doc = await db.collection("tournaments").findOne({});
+  res.json({
+    _id: doc?._id,
+    idType: typeof doc?._id,
+    isObjectId: doc?._id instanceof ObjectId,
+    stringId: doc?._id ? String(doc._id) : null,
+  });
+});
+
+app.get("/api/tournaments/:id", requireAuth, async (req, res) => {
+  try {
+    const id = req.params.id;
+
+    // ищем и как ObjectId, и как string
+    const filter = ObjectId.isValid(id)
+      ? { $or: [{ _id: new ObjectId(id) }, { _id: id }] }
+      : { _id: id };
+
     const t = await db.collection("tournaments").findOneAndUpdate(
-      { _id: new ObjectId(req.params.id) },
+      filter,
       { $inc: { views: 1 } },
       { returnDocument: "after" }
     );
@@ -237,7 +359,7 @@ app.get("/api/tournaments/:id", requireAuth, async (req, res) => {
   }
 });
 
-// UPDATE tournament (name)
+// UPDATE tournament
 app.put("/api/tournaments/:id", requireAuth, ensureTournamentOwner, async (req, res) => {
   try {
     const { name } = req.body;
@@ -246,7 +368,7 @@ app.put("/api/tournaments/:id", requireAuth, ensureTournamentOwner, async (req, 
     }
 
     await db.collection("tournaments").updateOne(
-      { _id: new ObjectId(req.params.id) },
+      idFilter(req.params.id),
       { $set: { name: String(name).trim() } }
     );
 
@@ -256,13 +378,14 @@ app.put("/api/tournaments/:id", requireAuth, ensureTournamentOwner, async (req, 
   }
 });
 
-// DELETE tournament (+ delete its matches)
+// DELETE tournament (+ matches)
 app.delete("/api/tournaments/:id", requireAuth, ensureTournamentOwner, async (req, res) => {
   try {
-    const tid = new ObjectId(req.params.id);
+    const tournament = await db.collection("tournaments").findOne(idFilter(req.params.id));
+    if (!tournament) return res.status(404).json({ error: "Tournament not found" });
 
-    await db.collection("tournaments").deleteOne({ _id: tid });
-    await db.collection("matches").deleteMany({ tournamentId: tid });
+    await db.collection("tournaments").deleteOne({ _id: tournament._id });
+    await db.collection("matches").deleteMany({ tournamentId: tournament._id });
 
     res.status(204).end();
   } catch {
@@ -270,7 +393,7 @@ app.delete("/api/tournaments/:id", requireAuth, ensureTournamentOwner, async (re
   }
 });
 
-// ADD team to tournament (advanced update: $addToSet + embedded _id)
+// ADD team
 app.post("/api/tournaments/:id/teams", requireAuth, ensureTournamentOwner, async (req, res) => {
   try {
     const { name } = req.body;
@@ -280,9 +403,8 @@ app.post("/api/tournaments/:id/teams", requireAuth, ensureTournamentOwner, async
 
     const teamDoc = { _id: new ObjectId(), name: String(name).trim() };
 
-    // prevent duplicates by team name
     const result = await db.collection("tournaments").updateOne(
-      { _id: new ObjectId(req.params.id), "teams.name": { $ne: teamDoc.name } },
+      { ...idFilter(req.params.id), "teams.name": { $ne: teamDoc.name } },
       { $addToSet: { teams: teamDoc } }
     );
 
@@ -296,186 +418,72 @@ app.post("/api/tournaments/:id/teams", requireAuth, ensureTournamentOwner, async
   }
 });
 
-// REMOVE team from tournament (advanced update: $pull)
-app.delete(
-  "/api/tournaments/:id/teams/:teamId",
-  requireAuth,
-  ensureTournamentOwner,
-  async (req, res) => {
-    if (!ObjectId.isValid(req.params.teamId))
+// REMOVE team
+app.delete("/api/tournaments/:id/teams/:teamId", requireAuth, ensureTournamentOwner, async (req, res) => {
+  if (!ObjectId.isValid(req.params.teamId))
+    return res.status(400).json({ error: "Invalid team id" });
+
+  try {
+    const tournament = await db.collection("tournaments").findOne(idFilter(req.params.id));
+    if (!tournament) return res.status(404).json({ error: "Tournament not found" });
+
+    const teamId = new ObjectId(req.params.teamId);
+
+    await db.collection("tournaments").updateOne(
+      { _id: tournament._id },
+      { $pull: { teams: { _id: teamId } } }
+    );
+
+    await db.collection("matches").deleteMany({
+      tournamentId: tournament._id,
+      $or: [{ homeTeamId: teamId }, { awayTeamId: teamId }],
+    });
+
+    res.status(204).end();
+  } catch {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// CREATE match for tournament
+app.post("/api/tournaments/:id/matches", requireAuth, ensureTournamentOwner, async (req, res) => {
+  try {
+    const { homeTeamId, awayTeamId, homeScore, awayScore, date } = req.body;
+
+    if (!ObjectId.isValid(homeTeamId) || !ObjectId.isValid(awayTeamId)) {
       return res.status(400).json({ error: "Invalid team id" });
-
-    try {
-      const tid = new ObjectId(req.params.id);
-      const teamId = new ObjectId(req.params.teamId);
-
-      await db.collection("tournaments").updateOne(
-        { _id: tid },
-        { $pull: { teams: { _id: teamId } } }
-      );
-
-      // also delete matches in this tournament that use that team
-      await db.collection("matches").deleteMany({
-        tournamentId: tid,
-        $or: [{ homeTeamId: teamId }, { awayTeamId: teamId }],
-      });
-
-      res.status(204).end();
-    } catch {
-      res.status(500).json({ error: "Server error" });
     }
-  }
-);
-
-// CREATE match for tournament (referenced model)
-app.post(
-  "/api/tournaments/:id/matches",
-  requireAuth,
-  ensureTournamentOwner,
-  async (req, res) => {
-    try {
-      const { homeTeamId, awayTeamId, homeScore, awayScore, date } = req.body;
-
-      if (!ObjectId.isValid(homeTeamId) || !ObjectId.isValid(awayTeamId)) {
-        return res.status(400).json({ error: "Invalid team id" });
-      }
-      if (String(homeTeamId) === String(awayTeamId)) {
-        return res.status(400).json({ error: "Teams must be different" });
-      }
-      if (!date) return res.status(400).json({ error: "date required" });
-      if (!Number.isInteger(homeScore) || homeScore < 0)
-        return res.status(400).json({ error: "Invalid homeScore" });
-      if (!Number.isInteger(awayScore) || awayScore < 0)
-        return res.status(400).json({ error: "Invalid awayScore" });
-
-      const tid = new ObjectId(req.params.id);
-      const ht = new ObjectId(homeTeamId);
-      const at = new ObjectId(awayTeamId);
-
-      const doc = {
-        tournamentId: tid,
-        homeTeamId: ht,
-        awayTeamId: at,
-        homeScore,
-        awayScore,
-        date,
-        createdBy: new ObjectId(req.session.user.id),
-        createdAt: new Date(),
-      };
-
-      const result = await db.collection("matches").insertOne(doc);
-      res.status(201).json({ id: result.insertedId });
-    } catch {
-      res.status(500).json({ error: "Server error" });
+    if (String(homeTeamId) === String(awayTeamId)) {
+      return res.status(400).json({ error: "Teams must be different" });
     }
+    if (!date) return res.status(400).json({ error: "date required" });
+    if (!Number.isInteger(homeScore) || homeScore < 0)
+      return res.status(400).json({ error: "Invalid homeScore" });
+    if (!Number.isInteger(awayScore) || awayScore < 0)
+      return res.status(400).json({ error: "Invalid awayScore" });
+
+    const tournament = await db.collection("tournaments").findOne(idFilter(req.params.id));
+    if (!tournament) return res.status(404).json({ error: "Tournament not found" });
+
+    const doc = {
+      tournamentId: tournament._id, // ✅ correct type
+      homeTeamId: new ObjectId(homeTeamId),
+      awayTeamId: new ObjectId(awayTeamId),
+      homeScore,
+      awayScore,
+      date,
+      createdBy: req.session.user.id, // keep as string
+      createdAt: new Date(),
+    };
+
+    const result = await db.collection("matches").insertOne(doc);
+    res.status(201).json({ id: result.insertedId });
+  } catch {
+    res.status(500).json({ error: "Server error" });
   }
-);
+});
 
-// Aggregation: standings table for tournament
-app.get(
-  "/api/tournaments/:id/standings",
-  requireAuth,
-  async (req, res) => {
-    if (!ObjectId.isValid(req.params.id))
-      return res.status(400).json({ error: "Invalid tournament id" });
-
-    try {
-      const tid = new ObjectId(req.params.id);
-
-      // get tournament teams (for names)
-      const tournament = await db.collection("tournaments").findOne({ _id: tid });
-      if (!tournament) return res.status(404).json({ error: "Tournament not found" });
-
-      const pipeline = [
-        { $match: { tournamentId: tid } },
-        {
-          $project: {
-            homeTeamId: 1,
-            awayTeamId: 1,
-            homeScore: 1,
-            awayScore: 1,
-          },
-        },
-        {
-          $facet: {
-            home: [
-              {
-                $project: {
-                  teamId: "$homeTeamId",
-                  gf: "$homeScore",
-                  ga: "$awayScore",
-                  win: { $cond: [{ $gt: ["$homeScore", "$awayScore"] }, 1, 0] },
-                  draw: { $cond: [{ $eq: ["$homeScore", "$awayScore"] }, 1, 0] },
-                  loss: { $cond: [{ $lt: ["$homeScore", "$awayScore"] }, 1, 0] },
-                },
-              },
-            ],
-            away: [
-              {
-                $project: {
-                  teamId: "$awayTeamId",
-                  gf: "$awayScore",
-                  ga: "$homeScore",
-                  win: { $cond: [{ $gt: ["$awayScore", "$homeScore"] }, 1, 0] },
-                  draw: { $cond: [{ $eq: ["$awayScore", "$homeScore"] }, 1, 0] },
-                  loss: { $cond: [{ $lt: ["$awayScore", "$homeScore"] }, 1, 0] },
-                },
-              },
-            ],
-          },
-        },
-        { $project: { rows: { $concatArrays: ["$home", "$away"] } } },
-        { $unwind: "$rows" },
-        {
-          $group: {
-            _id: "$rows.teamId",
-            games: { $sum: 1 },
-            wins: { $sum: "$rows.win" },
-            draws: { $sum: "$rows.draw" },
-            losses: { $sum: "$rows.loss" },
-            goalsFor: { $sum: "$rows.gf" },
-            goalsAgainst: { $sum: "$rows.ga" },
-          },
-        },
-        {
-          $addFields: {
-            points: { $add: [{ $multiply: ["$wins", 3] }, "$draws"] },
-            goalDiff: { $subtract: ["$goalsFor", "$goalsAgainst"] },
-          },
-        },
-        { $sort: { points: -1, goalDiff: -1, goalsFor: -1 } },
-      ];
-
-      const stats = await db.collection("matches").aggregate(pipeline).toArray();
-
-      // map teamId -> name from embedded teams
-      const nameMap = {};
-      (tournament.teams || []).forEach((t) => {
-        nameMap[String(t._id)] = t.name;
-      });
-
-      const result = stats.map((s) => ({
-        teamId: s._id,
-        teamName: nameMap[String(s._id)] || "Unknown team",
-        games: s.games,
-        wins: s.wins,
-        draws: s.draws,
-        losses: s.losses,
-        goalsFor: s.goalsFor,
-        goalsAgainst: s.goalsAgainst,
-        goalDiff: s.goalDiff,
-        points: s.points,
-      }));
-
-      res.status(200).json({ tournamentId: tid, standings: result });
-    } catch (e) {
-      res.status(500).json({ error: "Server error" });
-    }
-  }
-);
-
-// ===== Matches (your existing) =====
-
+// ---------- MATCHES (existing) ----------
 app.get("/api/matches", async (req, res) => {
   try {
     const { homeTeam, awayTeam, team, sort, fields } = req.query;
@@ -573,12 +581,11 @@ app.delete("/api/matches/:id", requireRole("organizer"), async (req, res) => {
   res.status(204).end();
 });
 
-// ===== Meta and start =====
-
+// meta
 app.get("/api/version", (req, res) => {
   res.status(200).json({
     name: "football-matches-api",
-    version: "1.0.1",
+    version: "1.0.2",
     deployedAt: new Date().toISOString(),
   });
 });
@@ -589,12 +596,10 @@ async function start() {
     db = client.db("football");
     console.log("Connected to MongoDB");
 
-    // ✅ Indexes (Final requirement)
     await db.collection("users").createIndex({ email: 1 }, { unique: true });
     await db.collection("matches").createIndex({ tournamentId: 1, date: -1 });
     await db.collection("tournaments").createIndex({ ownerId: 1, createdAt: -1 });
 
-    // items (from previous tasks)
     const itemsCollection = db.collection("items");
     app.use("/api/items", itemsRoutes(itemsCollection));
 
