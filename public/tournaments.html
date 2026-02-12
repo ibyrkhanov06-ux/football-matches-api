@@ -2,59 +2,57 @@
 <html lang="en">
 
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>Tournaments</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css" />
 </head>
 
 <body>
-
   <nav class="nav">
     <a href="/index.html">Home</a>
     <a href="/tournaments.html">Tournaments</a>
     <a href="/standings.html">Standings</a>
     <a href="/login.html">Login</a>
   </nav>
-  <hr>
+  <hr />
 
   <h1>Tournament Manager</h1>
 
-  <!-- STATUS (debug + user feedback) -->
-  <div id="statusBox" style="padding:10px; border-radius:6px; margin-bottom:12px; background:#2e7d32; color:white;">
+  <div id="statusBox" style="padding:10px;border-radius:6px;margin-bottom:12px;background:#2e7d32;color:white;">
     Status: <span id="statusText">Loading...</span>
   </div>
 
   <h3>Create Tournament</h3>
-  <input id="tName" placeholder="Tournament name">
+  <input id="tName" placeholder="Tournament name" />
   <button type="button" onclick="createTournament()">Create</button>
 
-  <hr>
+  <hr />
 
   <h3>Select Tournament</h3>
   <select id="tSelect" onchange="loadTournament()"></select>
   <button type="button" onclick="loadTournaments()">Refresh</button>
 
-  <hr>
+  <hr />
 
   <h3>Add Team</h3>
-  <input id="teamName" placeholder="Team name">
+  <input id="teamName" placeholder="Team name" />
   <button type="button" onclick="addTeam()">Add Team</button>
 
   <ul id="teamsList"></ul>
 
-  <hr>
+  <hr />
 
   <h3>Add Match</h3>
   <select id="homeTeam"></select>
   <select id="awayTeam"></select>
-  <input id="homeScore" type="number" placeholder="Home score">
-  <input id="awayScore" type="number" placeholder="Away score">
-  <input id="date" type="date">
+  <input id="homeScore" type="number" placeholder="Home score" />
+  <input id="awayScore" type="number" placeholder="Away score" />
+  <input id="date" type="date" />
   <button type="button" onclick="addMatch()">Add Match</button>
 
   <script>
     function setStatus(msg) {
-      document.getElementById('statusText').textContent = msg;
+      document.getElementById("statusText").textContent = msg;
     }
 
     async function safeJson(res) {
@@ -62,16 +60,16 @@
     }
 
     function setSelectsDisabled(disabled) {
-      document.getElementById('homeTeam').disabled = disabled;
-      document.getElementById('awayTeam').disabled = disabled;
+      document.getElementById("homeTeam").disabled = disabled;
+      document.getElementById("awayTeam").disabled = disabled;
     }
 
     function fillTeamsSelects(teams) {
-      const home = document.getElementById('homeTeam');
-      const away = document.getElementById('awayTeam');
+      const home = document.getElementById("homeTeam");
+      const away = document.getElementById("awayTeam");
 
-      home.innerHTML = '';
-      away.innerHTML = '';
+      home.innerHTML = "";
+      away.innerHTML = "";
 
       if (!teams || teams.length === 0) {
         home.innerHTML = '<option value="">No teams</option>';
@@ -80,7 +78,7 @@
         return;
       }
 
-      teams.forEach(team => {
+      teams.forEach((team) => {
         home.add(new Option(team.name, team._id));
         away.add(new Option(team.name, team._id));
       });
@@ -88,107 +86,122 @@
       setSelectsDisabled(false);
     }
 
-    async function loadTournaments() {
-      setStatus('Loading tournaments...');
-      const res = await fetch('/api/tournaments');
+    // helper: make fetch always send cookies (Render sessions)
+    function apiFetch(url, options = {}) {
+      return fetch(url, { credentials: "include", ...options });
+    }
 
+    async function loadTournaments() {
+      setStatus("Loading tournaments...");
+
+      const res = await apiFetch("/api/tournaments");
       if (!res.ok) {
         const err = await safeJson(res);
         setStatus(`Not logged in / error: ${err?.error || err?.message || res.status}`);
-        alert('Login first (go to Login page)');
+        alert("Login first (go to Login page)");
         return;
       }
 
       const data = await res.json();
-      const sel = document.getElementById('tSelect');
-      sel.innerHTML = '';
+      const tournaments = data.items ?? data; // ✅ поддержка пагинации
 
-      if (data.length === 0) {
+      const sel = document.getElementById("tSelect");
+      const prevSelected = sel.value;
+      sel.innerHTML = "";
+
+      if (!tournaments || tournaments.length === 0) {
         sel.innerHTML = '<option value="">No tournaments</option>';
         fillTeamsSelects([]);
-        document.getElementById('teamsList').innerHTML = '';
-        setStatus('No tournaments yet. Create one.');
+        document.getElementById("teamsList").innerHTML = "";
+        setStatus("No tournaments yet. Create one.");
         return;
       }
 
-      data.forEach(t => {
-        const o = document.createElement('option');
-        o.value = t._id;
+      tournaments.forEach((t) => {
+        const o = document.createElement("option");
+        o.value = t._id;        // ✅ важно: value = _id
         o.textContent = t.name;
         sel.appendChild(o);
       });
 
-      setStatus('Tournaments loaded ✅');
+      // если раньше что-то было выбрано — попробуем оставить
+      if (prevSelected && tournaments.some(t => t._id === prevSelected)) {
+        sel.value = prevSelected;
+      } else {
+        sel.value = tournaments[0]._id;
+      }
+
+      setStatus("Tournaments loaded ✅");
       await loadTournament();
     }
 
     async function createTournament() {
-      const name = document.getElementById('tName').value.trim();
-      if (!name) return alert('Enter tournament name');
+      const name = document.getElementById("tName").value.trim();
+      if (!name) return alert("Enter tournament name");
 
-      setStatus('Creating tournament...');
-      const res = await fetch('/api/tournaments', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name })
+      setStatus("Creating tournament...");
+      const res = await apiFetch("/api/tournaments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
       });
 
       const data = await safeJson(res);
-
       if (!res.ok) {
         setStatus(`Create failed: ${data?.error || data?.message || res.status}`);
-        alert(data?.error || data?.message || 'Failed to create tournament');
+        alert(data?.error || data?.message || "Failed to create tournament");
         return;
       }
 
-      document.getElementById('tName').value = '';
-      setStatus('Tournament created ✅');
+      document.getElementById("tName").value = "";
+      setStatus("Tournament created ✅");
       await loadTournaments();
     }
 
     async function loadTournament() {
-      const id = document.getElementById('tSelect').value;
+      const id = document.getElementById("tSelect").value;
 
       if (!id) {
         fillTeamsSelects([]);
-        document.getElementById('teamsList').innerHTML = '';
-        setStatus('Select tournament first');
+        document.getElementById("teamsList").innerHTML = "";
+        setStatus("Select tournament first");
         return;
       }
 
-      setStatus('Loading tournament details...');
-      const res = await fetch(`/api/tournaments/${id}`);
+      setStatus(`Loading tournament details... (${id})`);
+      const res = await apiFetch(`/api/tournaments/${id}`);
       const t = await safeJson(res);
 
       if (!res.ok) {
-        setStatus(`Tournament load failed: ${t?.error || t?.message || res.status}`);
+        setStatus(`Tournament load failed: ${t?.error || t?.message || res.status} (id=${id})`);
+        fillTeamsSelects([]);
+        document.getElementById("teamsList").innerHTML = "";
         return;
       }
 
-      // render teams list + remove buttons
-      const list = document.getElementById('teamsList');
-      list.innerHTML = '';
+      const list = document.getElementById("teamsList");
+      list.innerHTML = "";
 
-      (t.teams || []).forEach(team => {
-        const li = document.createElement('li');
+      (t.teams || []).forEach((team) => {
+        const li = document.createElement("li");
         li.textContent = team.name;
 
-        const del = document.createElement('button');
-        del.type = 'button';
-        del.textContent = 'Remove';
-        del.style.marginLeft = '10px';
+        const del = document.createElement("button");
+        del.type = "button";
+        del.textContent = "Remove";
+        del.style.marginLeft = "10px";
         del.onclick = async () => {
-          setStatus('Removing team...');
-          const r = await fetch(`/api/tournaments/${id}/teams/${team._id}`, { method: 'DELETE' });
+          setStatus("Removing team...");
+          const r = await apiFetch(`/api/tournaments/${id}/teams/${team._id}`, { method: "DELETE" });
           const rr = await safeJson(r);
 
           if (!r.ok) {
             setStatus(`Remove failed: ${rr?.error || rr?.message || r.status}`);
-            alert(rr?.error || 'Failed to remove team');
+            alert(rr?.error || "Failed to remove team");
             return;
           }
 
-          setStatus('Team removed ✅');
+          setStatus("Team removed ✅");
           await loadTournament();
         };
 
@@ -201,68 +214,66 @@
     }
 
     async function addTeam() {
-      const id = document.getElementById('tSelect').value;
-      const name = document.getElementById('teamName').value.trim();
-      if (!id) return alert('Select tournament first');
-      if (!name) return alert('Enter team name');
+      const id = document.getElementById("tSelect").value;
+      const name = document.getElementById("teamName").value.trim();
+      if (!id) return alert("Select tournament first");
+      if (!name) return alert("Enter team name");
 
-      setStatus('Adding team...');
-      const res = await fetch(`/api/tournaments/${id}/teams`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name })
+      setStatus("Adding team...");
+      const res = await apiFetch(`/api/tournaments/${id}/teams`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
       });
 
       const data = await safeJson(res);
-
       if (!res.ok) {
         setStatus(`Add team failed: ${data?.error || data?.message || res.status}`);
-        alert(data?.error || 'Failed to add team');
+        alert(data?.error || "Failed to add team");
         return;
       }
 
-      document.getElementById('teamName').value = '';
-      setStatus('Team added ✅');
-      await loadTournament(); // ✅ обновляем список и селекты
+      document.getElementById("teamName").value = "";
+      setStatus("Team added ✅");
+      await loadTournament();
     }
 
     async function addMatch() {
-      const tid = document.getElementById('tSelect').value;
-      const homeTeamId = document.getElementById('homeTeam').value;
-      const awayTeamId = document.getElementById('awayTeam').value;
+      const tid = document.getElementById("tSelect").value;
+      const homeTeamId = document.getElementById("homeTeam").value;
+      const awayTeamId = document.getElementById("awayTeam").value;
 
-      if (!tid) return alert('Select tournament first');
-      if (!homeTeamId || !awayTeamId) return alert('Add teams first');
-      if (homeTeamId === awayTeamId) return alert('Teams must be different');
+      if (!tid) return alert("Select tournament first");
+      if (!homeTeamId || !awayTeamId) return alert("Add teams first");
+      if (homeTeamId === awayTeamId) return alert("Teams must be different");
 
       const body = {
         homeTeamId,
         awayTeamId,
-        homeScore: Number(document.getElementById('homeScore').value),
-        awayScore: Number(document.getElementById('awayScore').value),
-        date: document.getElementById('date').value
+        homeScore: Number(document.getElementById("homeScore").value),
+        awayScore: Number(document.getElementById("awayScore").value),
+        date: document.getElementById("date").value,
       };
 
-      setStatus('Adding match...');
-      const res = await fetch(`/api/tournaments/${tid}/matches`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
+      setStatus("Adding match...");
+      const res = await apiFetch(`/api/tournaments/${tid}/matches`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
       });
 
       const data = await safeJson(res);
-
       if (!res.ok) {
         setStatus(`Add match failed: ${data?.error || data?.message || res.status}`);
-        alert(data?.error || 'Failed to add match');
+        alert(data?.error || "Failed to add match");
         return;
       }
 
-      setStatus('Match added ✅');
-      alert('Match added ✅');
+      setStatus("Match added ✅");
+      alert("Match added ✅");
     }
 
-    // expose to inline onclick
+    // expose
     window.createTournament = createTournament;
     window.loadTournaments = loadTournaments;
     window.loadTournament = loadTournament;
@@ -273,6 +284,6 @@
     fillTeamsSelects([]);
     loadTournaments();
   </script>
-
 </body>
+
 </html>
