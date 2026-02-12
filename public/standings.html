@@ -40,49 +40,98 @@
     </table>
 
     <script>
+        function apiFetch(url, options = {}) {
+            return fetch(url, { credentials: "include", ...options });
+        }
+
+        async function safeJson(res) {
+            try { return await res.json(); } catch { return null; }
+        }
+
+        function setStatus(msg) {
+            const el = document.getElementById("statusText");
+            if (el) el.textContent = msg;
+        }
+
         async function loadTournaments() {
-            const res = await fetch('/api/tournaments');
-            if (!res.ok) return alert('Login first');
+            setStatus("Loading tournaments...");
 
-            const data = await res.json();
-            const sel = document.getElementById('tSelect');
-            sel.innerHTML = '';
+            const res = await apiFetch("/api/tournaments?limit=50");
+            const data = await safeJson(res);
 
-            data.forEach(t => {
-                const o = document.createElement('option');
-                o.value = t._id;
-                o.textContent = t.name;
-                sel.appendChild(o);
+            if (!res.ok) {
+                setStatus(`Error: ${data?.error || data?.message || res.status}`);
+                alert("Login first, then open Standings page.");
+                return;
+            }
+
+            const tournaments = data?.items ?? data; // ✅ поддержка пагинации И массива
+
+            const sel = document.getElementById("tSelect");
+            sel.innerHTML = "";
+
+            if (!Array.isArray(tournaments) || tournaments.length === 0) {
+                sel.innerHTML = `<option value="">No tournaments</option>`;
+                setStatus("No tournaments yet");
+                return;
+            }
+
+            tournaments.forEach(t => {
+                const opt = document.createElement("option");
+                opt.value = t._id;
+                opt.textContent = t.name;
+                sel.appendChild(opt);
             });
+
+            setStatus("Tournaments loaded ✅");
         }
 
         async function loadStandings() {
-            const id = document.getElementById('tSelect').value;
-            if (!id) return;
+            const tid = document.getElementById("tSelect").value;
+            if (!tid) return alert("Select tournament first");
 
-            const res = await fetch(`/api/tournaments/${id}/standings`);
-            const data = await res.json();
+            setStatus("Loading standings...");
 
-            const rows = document.getElementById('rows');
-            rows.innerHTML = '';
+            const res = await apiFetch(`/api/tournaments/${tid}/standings`);
+            const data = await safeJson(res);
 
-            (data.standings || []).forEach(s => {
-                const tr = document.createElement('tr');
+            if (!res.ok) {
+                setStatus(`Error: ${data?.error || data?.message || res.status}`);
+                return;
+            }
+
+            const standings = data?.standings ?? data; // ✅ если вдруг вернётся просто массив
+            if (!Array.isArray(standings)) {
+                setStatus("Standings format error");
+                return;
+            }
+
+            const tbody = document.getElementById("standingsBody");
+            tbody.innerHTML = "";
+
+            standings.forEach(row => {
+                const tr = document.createElement("tr");
                 tr.innerHTML = `
-      <td>${s.teamName}</td>
-      <td>${s.games}</td>
-      <td>${s.wins}</td>
-      <td>${s.draws}</td>
-      <td>${s.losses}</td>
-      <td>${s.goalsFor}</td>
-      <td>${s.goalsAgainst}</td>
-      <td>${s.goalDiff}</td>
-      <td><b>${s.points}</b></td>
-    `;
-                rows.appendChild(tr);
+        <td>${row.teamName}</td>
+        <td>${row.games}</td>
+        <td>${row.wins}</td>
+        <td>${row.draws}</td>
+        <td>${row.losses}</td>
+        <td>${row.goalsFor}</td>
+        <td>${row.goalsAgainst}</td>
+        <td>${row.goalDiff}</td>
+        <td>${row.points}</td>
+      `;
+                tbody.appendChild(tr);
             });
+
+            setStatus("Standings loaded ✅");
         }
 
+        // expose
+        window.loadStandings = loadStandings;
+
+        // start
         loadTournaments();
     </script>
 
